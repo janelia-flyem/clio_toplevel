@@ -89,6 +89,9 @@ def handlerDatasets(roles, dataset_info, method):
     if "clio_general" not in roles:
         abort(403)
 
+    if (method == "POST" or method == "DELETE" or method == "PUT") and "admin" not in roles and "owner" not in roles:
+        return abort(403)
+
     # Instantiates a client
     client = Client()
     # The kind for the new entity
