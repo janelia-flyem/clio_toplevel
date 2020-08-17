@@ -1,9 +1,18 @@
 # Cloud function for managing Clio
 
-Simple function for managing logins, datasets, and other resources.
+Simple cloud function for managing logins, datasets, and other resources useful
+for analyzing and using large electron microscopy (EM) datasets.
+
+The service uses Google Oauth and maintains authorization data inside
+Google's datastore.  
+
+## Installation
+
+The function can be installed by copying the python and requirements file
+into a Google Cloud function environment.  An "OWNER" environment
+variaable should be specified as an email address.
 
 ## API
-
 
 ### datasets
 
