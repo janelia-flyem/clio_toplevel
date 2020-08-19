@@ -66,7 +66,6 @@ Find matching points for a signature near a given point:
 	% curl -X GET -H "Content-Type: application/json"  --header "Authorization: Bearer $(gcloud auth print-identity-token)" https://us-east4-flyem-private.cloudfunctions.net/clio_toplevel/signatures/likelocation/mb20?x=18416\&y=16369\&z=26467
 
 
-
 ### user management
 
 Admins and the owner can retrieve a list of users, update roles and add new users, and delete users.

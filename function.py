@@ -351,15 +351,22 @@ def find_similar_signatures(dataset, x, y, z):
     query_job = client.query(SQL)
     results = query_job.result()
     
+    all_points = [[x,y,z]]
     def distance(pt):
-        return (((x-pt[0])**2 + (y-pt[1])**2 + (z-pt[2])**2)**(0.5))
+        best = 999999999999
+        for c in all_points:
+            temp = (((c[0]-pt[0])**2 + (c[1]-pt[1])**2 + (c[2]-pt[2])**2)**(0.5))
+            if temp < best:
+                best = temp
+        return best
 
     pruned_results = []
     for row in results:
         # load results
         if distance((row.x, row.y, row.z)) > MAX_DISTANCE: 
             pruned_results.append({"point": [row.x, row.y, row.z], "dist": row.hamming, "score": (1.0-row.hamming/max_ham)})
-    
+            all_points.append([row.x, row.y, row.z])
+
     return pruned_results
 
 def getSignature(roles, dataset, point):
