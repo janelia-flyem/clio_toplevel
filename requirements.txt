@@ -1,4 +1,7 @@
 # Function dependencies, for example:
 # package>=version
+google-cloud-core>=1.0.3
 google-cloud-datastore==1.6.0
-google-auth
+google-cloud-bigquery==1.26.1
+google-cloud-storage==1.19.0
+google-auth==1.18.0

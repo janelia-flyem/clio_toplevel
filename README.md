@@ -11,6 +11,9 @@ Google's datastore.
 The function can be installed by copying the python and requirements file
 into a Google Cloud function environment.  An "OWNER" environment
 variaable should be specified as an email address.
+If signature searching is supported, "SIG_BUCKET" should
+be set to the location of google storaage bucket containing
+the dataset signatures.
 
 ## API
 
@@ -49,6 +52,20 @@ Get annotations:
 Delete annotations (only one at a time):
 
 	curl -X  DELETE -H "Content-Type: application/json"  --header "Authorization: Bearer $(gcloud auth print-identity-token)" https://us-east4-flyem-private.cloudfunctions.net/clio_toplevel/annotations/mb20?x=50\&y=30\&z=50
+
+### searching image dataset using signatures
+
+If signatures are computed for a dataset, one can query the signature closest to a given point or find a set of locations similar to the signature found at a given point. 
+
+Find signature near a given point:
+
+	% curl -X GET -H "Content-Type: application/json"  --header "Authorization: Bearer $(gcloud auth print-identity-token)" https://us-east4-flyem-private.cloudfunctions.net/clio_toplevel/signatures/atlocation/mb20?x=18416\&y=16369\&z=26467
+
+Find matching points for a signature near a given point:
+
+	% curl -X GET -H "Content-Type: application/json"  --header "Authorization: Bearer $(gcloud auth print-identity-token)" https://us-east4-flyem-private.cloudfunctions.net/clio_toplevel/signatures/likelocation/mb20?x=18416\&y=16369\&z=26467
+
+
 
 ### user management
 
