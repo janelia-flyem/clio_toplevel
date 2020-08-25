@@ -300,7 +300,7 @@ def fetch_signature(dataset, x, y, z):
             if dist <= MAX_DISTANCE and dist < closest_dist:
                 closest_dist = dist
                 closest_point = [xt,yt,zt]
-                closest_sig = int.from_bytes(blockbin[start:(start+8)], "little") - 2**64 # make signed int
+                closest_sig = int.from_bytes(blockbin[start:(start+8)], "little", signed=True) # make signed int
         if closest_dist > MAX_DISTANCE:
             raise Exception("point not found")
     except Exception:
