@@ -53,6 +53,46 @@ Delete annotations (only one at a time):
 
 	curl -X  DELETE -H "Content-Type: application/json"  --header "Authorization: Bearer $(gcloud auth print-identity-token)" https://us-east4-flyem-private.cloudfunctions.net/clio_toplevel/annotations/mb20?x=50\&y=30\&z=50
 
+### Atlas
+
+The "atlas" endpoint is very similar to annotations but it meant for special mark-ups which can be used
+as a cross-dataset glossary.  Unlike 'annotations', 'atlas' requires the following JSON fields:
+
+	* title
+	* description
+	* user
+
+If the specified dataset is 'all' the annotations are returned across all datasets as a list.  The function
+also automatically adds aa timestaamp, location, and dataset field.
+
+Note: posting and deleting can only be done by users with the 'clio_atlas' or 'admin' role.
+
+Post atlas annotation (only one at a time, will overwrite pre-existing):
+	
+	% curl -X  POST -H "Content-Type: application/json"  --header "Authorization: Bearer $(gcloud auth print-identity-token)" https://us-east4-flyem-private.cloudfunctions.net/clio_toplevel/atlas/mb20?x=50\&y=30\&z=50 -d '{"title": "weird point", "description": "it is raally strange", "user": "foo@bar"}'
+	
+	% curl -X  POST -H "Content-Type: application/json"  --header "Authorization: Bearer $(gcloud auth print-identity-token)" https://us-east4-flyem-private.cloudfunctions.net/clio_toplevel/atlas/AbG?x=50\&y=30\&z=50 -d '{"title": "weird point", "description": "it is also strange", "user": "foo@bar"}'
+
+Get atlas annotations:
+	
+	% curl -X GET -H "Content-Type: application/json"  --header "Authorization: Bearer $(gcloud auth print-identity-token)" https://us-east4-flyem-private.cloudfunctions.net/clio_toplevel/atlas/mb20
+
+Get ALL atlas annotations across datasets:
+	
+	% curl -X GET -H "Content-Type: application/json"  --header "Authorization: Bearer $(gcloud auth print-identity-token)" https://us-east4-flyem-private.cloudfunctions.net/clio_toplevel/atlas/all
+
+Delete atlas annotation (only one at a time):
+
+	curl -X  DELETE -H "Content-Type: application/json"  --header "Authorization: Bearer $(gcloud auth print-identity-token)" https://us-east4-flyem-private.cloudfunctions.net/clio_toplevel/atlas/mb20?x=50\&y=30\&z=50
+
+
+
+
+
+ 
+
+
+
 ### searching image dataset using signatures
 
 If signatures are computed for a dataset, one can query the signature closest to a given point or find a set of locations similar to the signature found at a given point. 

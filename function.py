@@ -10,6 +10,7 @@ from google.auth.transport import requests
 from google.cloud import storage
 from google.cloud import bigquery
 
+import time
 
 # Environment variables
 
@@ -24,6 +25,106 @@ SIG_DATASET_SUFFIX = "_imgsearch"
 MAX_DISTANCE = 100 # 100 pixels (TODO: make dynamic) 
 
 USER_CACHE = None
+
+"""Supported rfrom google.cloud.datastore import Client, Entityoles.
+
+owner: absolute permission for user information
+admin: full read/write access
+clio_general: access clio resources (but not all write modes)
+clio_atlas: allow posting to atlas endpoint
+"""
+
+def handlerAtlas(roles, dataset, point, jsondata, method):
+    """Enables annotations for a dataset.
+    
+    Data is stored indexed uniquely to an x,y,z.  Post
+    should only be one synapse at a time.  The json payload
+    is arbitrary.
+    """
+    if "clio_general" not in roles:
+        abort(403)
+
+    if (method == "POST" or method == "DELETE") and ("clio_atlas" not in roles and "admin" not in roles):
+        abort(403)
+
+    # Instantiates a client
+    client = Client()
+    # The kind for the new entity
+    kind = GROUPNAME
+    # The Cloud Datastore key for the new entity
+    key = client.key(kind, "atlas")
+
+    if method == "GET":
+        try:
+            task = client.get(key)
+            # no annotations saved
+            if not task:
+                if dataset == "all":
+                    return json.dumps([])
+                else:
+                    return json.dumps({})
+
+            output = None
+            if dataset == "all":
+                output = []
+                for _, val in task.items():
+                    output.append(val)
+            else:
+                output = {}
+                for _, val in task.items():
+                    if val["dataset"] == dataset:
+                        point_str = f'{val["location"][0]}_{val["location"][1]}_{val["location"][2]}'
+                        output[point_str] = val
+            
+            return json.dumps(output)
+        except Exception as e:
+            return abort(400)
+    elif method == "POST" or method == "PUT":
+        try:
+            # check formaat
+            if "title" not in jsondata:
+                raise RuntimeError("not formatted properly")
+            if "description" not in jsondata:
+                raise RuntimeError("not formatted properly")
+            if "user" not in jsondata:
+                raise RuntimeError("not formatted properly")
+            jsondata["timestamp"] = time.time()
+            jsondata["dataset"] = dataset
+            jsondata["location"] = [int(point[0]), int(point[1]), int(point[2])]
+
+            with client.transaction():
+                task = client.get(key)
+                if not task:
+                    task = Entity(key)
+                point_str = dataset + ":" + str(point[0]) + "_" + str(point[1]) + "_" + str(point[2])
+                payload = {}
+                payload[point_str] = jsondata
+                task.update(payload)
+                client.put(task)
+        except:
+            return abort(400)
+    elif method == "DELETE":
+        # info should be [ name1, name2, etc]
+        try:
+            with client.transaction():
+                task = client.get(key)
+                if not task:
+                    return abort(400)
+                else:
+                    point_str = dataset + ":" + str(point[0]) + "_" + str(point[1]) + "_" + str(point[2])
+                    if point_str in task:
+                        del task[point_str]
+                client.put(task)
+        except Exception as e:
+            print(e)
+            return abort(400)
+    else:
+        return abort(400)
+
+    return ""
+
+
+
 
 def handlerAnnotations(roles, dataset, point, jsondata, method):
     """Enables annotations for a dataset.
@@ -213,6 +314,7 @@ def get_auth(token):
     # grab lower-case version of email
     email = idinfo["email"].lower()
     roles = []
+    print(email)
 
     # check cache first, requery if not there 
     if USER_CACHE is not None and email in USER_CACHE:
@@ -436,6 +538,8 @@ def main(request):
 
     # if data is posted it should be in JSON format
     jsondata = request.get_json(force=True, silent=True)
+    
+    print(urlparts)
 
     # GET/POST/DELETE dataset information
     if urlparts[0] == "datasets":
@@ -448,6 +552,26 @@ def main(request):
         y = request.args.get('y')
         z = request.args.get('z')
         resp = handlerAnnotations(roles, dataset, (x,y,z), jsondata, request.method)
+    elif urlparts[0] == "atlas" and len(urlparts) == 2:
+        """Similar to 'annotataions' with the following exceptions.
+        
+        Posted JSON must have the following format:
+
+        * title
+        * description
+        * user
+
+        A 'timestamp' is automatically added as seconds from epoch.
+
+        Also, a GET request with the dataset name 'all' will return
+        all annotations and a new field for 'dataset' and 'location'.
+        """
+        dataset = urlparts[1]
+        # not necessary for a GET request
+        x = request.args.get('x')
+        y = request.args.get('y')
+        z = request.args.get('z')
+        resp = handlerAtlas(roles, dataset, (x,y,z), jsondata, request.method)
     # GET /users -- return all users and auth (admin)
     # POST /users -- add user and auth
     elif urlparts[0] == "users":
