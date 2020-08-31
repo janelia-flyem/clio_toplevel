@@ -13,7 +13,8 @@ into a Google Cloud function environment.  An "OWNER" environment
 variaable should be specified as an email address.
 If signature searching is supported, "SIG_BUCKET" should
 be set to the location of google storaage bucket containing
-the dataset signatures.
+the dataset signatures.  "TRANSFER_FUNC" and "TRANSFER_DEST" also need to be set
+for the transfer network cloud run location and cache location.
 
 ## API
 
@@ -87,11 +88,25 @@ Delete atlas annotation (only one at a time):
 
 
 
+### imaage transfer
 
+This API allows a user to transfer the specified dataset at a given location and model to another dataset, which is created on-the-fly and viewable in neuroglancer.
+Note: TRANSFER_FUNC environment variable must be set to the address of the cloud run function.  TRANSFER_DEST
+need to be set to a read public cache.
 
- 
+The input json should be like the following
 
+```json
+{
+	"dataset": "oldalign_VNC",
+	"model_name":  "vnc2hemi:synfocal_3000",
+	"center": [20135, 27130, 40622]
+}
+```
 
+	% curl -X POST -H "Content-Type: application/json"  --header "Authorization: Bearer $(gcloud auth print-identity-token)" https://us-east4-flyem-private.cloudfunctions.net/clio_toplevel/transfer --data-binary @transfer.json 
+
+This returns a JSON with {"addr": "neuroglancer link"}
 
 ### searching image dataset using signatures
 
