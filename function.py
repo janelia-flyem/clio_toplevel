@@ -172,8 +172,14 @@ def transferData(roles, jsondata):
                         base = config_temp["glbstart"]
                         config_temp["start"] = [base[0]+xiter, base[1]+yiter, base[2]+ziter]
                         # occaaional errors are not critically important 
-                        # (TODO: handle errors)
-                        _ = requests2.post(TRANSFER_FUNC, data=json.dumps(config_temp), headers=headers)
+                        retries = 10
+                        while retries > 0:
+                            resp = requests2.post(TRANSFER_FUNC, data=json.dumps(config_temp), headers=headers)
+                            if resp.status_code != 200:
+                                retries -= 1
+                                time.sleep(5)
+                            else:
+                                break
 
         threads = [threading.Thread(target=call_cr, args=(thread_id,)) for thread_id in range(NUM_THREADS)]
 
