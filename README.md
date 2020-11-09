@@ -88,7 +88,7 @@ Delete atlas annotation (only one at a time):
 
 
 
-### imaage transfer
+### image transfer
 
 This API allows a user to transfer the specified dataset at a given location and model to another dataset, which is created on-the-fly and viewable in neuroglancer.
 Note: TRANSFER_FUNC environment variable must be set to the address of the cloud run function.  TRANSFER_DEST
