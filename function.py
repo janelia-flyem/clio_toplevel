@@ -47,9 +47,11 @@ clio_write: non-local write access
 public mode: clio_general role for all authenticated users
 """
 
-# firestore collection name
+# firestore user collection name
 CLIO_USERS = "clio_users"
 
+# firestore dataset collection name
+CLIO_DATASETS = "clio_datasets"
 
 def transferData(email, jsondata):
     """Transfer data for the given dataset, location, and model.
@@ -380,43 +382,30 @@ def handlerDatasets(email, dataset_info, method):
     if (method == "POST" or method == "DELETE" or method == "PUT") and "admin" not in roles:
         abort(403)
 
-    # Instantiates a client
-    client = Client()
-    # The kind for the new entity
-    kind = GROUPNAME
-    # The Cloud Datastore key for the new entity
-    key = client.key(kind, "datasets")
+    db = firestore.Client()
 
     if method == "GET":
         try:
-            task = client.get(key)
-            # no datasets saved
-            if not task:
-                return json.dumps({})
-            return json.dumps(task)
+            datasets = db.collection(CLIO_DATASETS).get()
+            datasets_out = {}
+            for dataset in datasets:
+                datasets_out[dataset.id] = dataset.to_dict()
+            return json.dumps(datasets_out)
         except Exception as e:
+            print(e)
             abort(400)
     elif method == "POST" or method == "PUT":
         try:
-            with client.transaction():
-                task = client.get(key)
-                if not task:
-                    task = Entity(key)
-                task.update(dataset_info)
-                client.put(task)
-        except:
+            for dataset, data in dataset_info.items():
+                db.collection(CLIO_DATASETS).document(dataset).set(data)
+        except Exception as e:
+            print(e)
             abort(400)
     elif method == "DELETE":
         # info should be [ name1, name2, etc]
         try:
-            with client.transaction():
-                task = client.get(key)
-                if not task:
-                    abort(400)
-                else:
-                    for dataset in dataset_info:
-                        del task[dataset]
-                client.put(task)
+            for dataset in dataset_info:
+                db.collection(CLIO_DATASETS).document(dataset).delete()
         except Exception as e:
             print(e)
             abort(400)
