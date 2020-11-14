@@ -1,8 +1,9 @@
 import json
 import os
 
-# Imports the Google Cloud client library
-from google.cloud.datastore import Client, Entity
+# import firestore (deprecates datastore)
+from google.cloud import firestore
+
 from flask import abort, make_response
 from google.oauth2 import id_token
 from google.auth.transport import requests
@@ -33,17 +34,24 @@ MAX_DISTANCE = 100 # 100 pixels (TODO: make dynamic)
 TRANSFER_FUNC = os.environ["TRANSFER_FUNC"]
 TRANSFER_DEST = os.environ["TRANSFER_DEST"]
 
-USER_CACHE = None
+USER_CACHE = {} 
 
 """Supported roles:
 
-owner: absolute permission for user information
-admin: full read/write access
-clio_general: access clio resources (but not all write modes)
-clio_atlas: allow posting to atlas endpoint
+owner: settable in the environment, equals admin
+admin: admin access to things like user roles
+clio_general: clio read access and local writes (default if public)
+clio_write: non-local write access
+
+
+public mode: clio_general role for all authenticated users
 """
 
-def transferData(roles, jsondata):
+# firestore collection name
+CLIO_USERS = "clio_users"
+
+
+def transferData(email, jsondata):
     """Transfer data for the given dataset, location, and model.
     
     JSON format
@@ -55,7 +63,8 @@ def transferData(roles, jsondata):
     }
 
     """
-
+    
+    roles = get_roles(email, dataset)
     if "clio_general" not in roles:
         abort(403)
 
@@ -193,17 +202,21 @@ def transferData(roles, jsondata):
     except Exception as e:
         return make_response(traceback.format_exc(), 400)
 
-def handlerAtlas(roles, dataset, point, jsondata, method):
+def handlerAtlas(email, dataset, point, jsondata, method):
     """Enables annotations for a dataset.
     
     Data is stored indexed uniquely to an x,y,z.  Post
     should only be one synapse at a time.  The json payload
     is arbitrary.
     """
+
+    # TODO: add dataset-specific GET 
+
+    roles = get_roles(email, dataset)
     if "clio_general" not in roles:
         abort(403)
 
-    if (method == "POST" or method == "DELETE") and ("clio_atlas" not in roles and "admin" not in roles):
+    if (method == "POST" or method == "DELETE") and ("clio_write" not in roles):
         abort(403)
 
     # Instantiates a client
@@ -283,15 +296,15 @@ def handlerAtlas(roles, dataset, point, jsondata, method):
     return ""
 
 
-
-
-def handlerAnnotations(roles, dataset, point, jsondata, method):
+def handlerAnnotations(email, dataset, point, jsondata, method):
     """Enables annotations for a dataset.
     
     Data is stored indexed uniquely to an x,y,z.  Post
     should only be one synapse at a time.  The json payload
     is arbitrary.
     """
+   
+    roles = get_roles(email, dataset)
     if "clio_general" not in roles:
         return abort(403)
 
@@ -344,7 +357,7 @@ def handlerAnnotations(roles, dataset, point, jsondata, method):
 
     return ""
 
-def handlerDatasets(roles, dataset_info, method):
+def handlerDatasets(email, dataset_info, method):
     """Manages dataset information.
 
     format:
@@ -356,10 +369,15 @@ def handlerDatasets(roles, dataset_info, method):
     dataset_info is empty for a GET, is a diction
     for a POST, and is a list of datasets for a DELETE.
     """
+   
+    roles = get_roles(email)
+
+    # TODO: look at per dataset auth
+
     if "clio_general" not in roles:
         abort(403)
 
-    if (method == "POST" or method == "DELETE" or method == "PUT") and "admin" not in roles and "owner" not in roles:
+    if (method == "POST" or method == "DELETE" or method == "PUT") and "admin" not in roles:
         abort(403)
 
     # Instantiates a client
@@ -407,53 +425,41 @@ def handlerDatasets(roles, dataset_info, method):
 
     return ""
 
-def handlerUsers(roles, userdata, method):
+def handlerUsers(email, userdata, method):
     global USER_CACHE
-
-    # allow owner to have access
-    if "admin" not in roles and "owner" not in roles:
+    
+    roles = get_roles(email)
+    # allow admin to have access
+    if "admin" not in roles:
         abort(403)
 
-    # Instantiates a client
-    client = Client()
-    # The kind for the new entity
-    kind = GROUPNAME
-    # The Cloud Datastore key for the new entity
-    key = client.key(kind, "users")
+    db = firestore.Client()
 
     if method == "GET":
         try:
-            task = client.get(key)
-            # no users saved
-            if not task:
-                return json.dumps({})
-            return json.dumps(task)
+            all_users = db.collection(CLIO_USERS).get()
+            user_out = {}
+            for user in all_users:
+                user_out[user.id] = user.to_dict()
+            return json.dumps(user_out)
         except Exception as e:
+            print(e)
             abort(400)
     elif method == "POST" or method == "PUT":
+        # add / replace user data
         try:
-            with client.transaction():
-                task = client.get(key)
-                if not task:
-                    task = Entity(key)
-                task.update(userdata)
-                USER_CACHE = task
-                client.put(task)
-        except:
+            # update on uesr at a time
+            for user, data in userdata.items():
+                db.collection(CLIO_USERS).document(user).set(data)
+                USER_CACHE[user] = data
+        except Exception as e:
+            print(e)
             abort(400)
     elif method == "DELETE":
         try:
-            with client.transaction():
-                task = client.get(key)
-                if not task:
-                    abort(400)
-                else:
-                    for user in userdata:
-                        del task[user]
-                # update cache
-                USER_CACHE = task
-
-                client.put(task)
+            for user in userdata:
+                db.collection(CLIO_USERS).document(user).delete()
+                del USER_CACHE[user]
         except Exception as e:
             print(e)
             abort(400)
@@ -462,47 +468,40 @@ def handlerUsers(roles, userdata, method):
 
     return ""
 
-def get_auth(token):
-    """Check google token and return user roles.
-    """
-    global USER_CACHE
+def get_auth_email(token):
+    """Retrieve the email associated with token.
 
-    # verify it is up-to-date from Google -- throws exception if invalid
+    Throws exception if token is invalid.
+    """
     idinfo = id_token.verify_oauth2_token(token, requests.Request()) 
    
     # grab lower-case version of email
-    email = idinfo["email"].lower()
-    roles = []
-    print(email)
+    return idinfo["email"].lower()
 
-    # check cache first, requery if not there 
-    if USER_CACHE is not None and email in USER_CACHE:
-        roles = USER_CACHE[email]
-    else:
-        # load cache
-        
-        # Instantiates a client
-        client = Client()
-        # The kind for the new entity
-        kind = GROUPNAME
-        # The Cloud Datastore key for the new entity
-        key = client.key(kind, "users")
-        task = client.get(key)
-        # no users saved
-        if not task:
-            USER_CACHE = {}
-        else:
-            USER_CACHE = task 
+def get_roles(email, dataset=""):
+    """Check google token and return user roles.
+    """
+    global USER_CACHE
+    
+    # TODO: auto refresh if cache is >10 minutes old
 
-        if email not in USER_CACHE:
-            if email != OWNER:
-                roles = ["noauth"]
-        else:
-            roles = USER_CACHE[email]
+    roles = set()
+    if email == OWNER:
+        roles.add("admin")
+    if email not in USER_CACHE:
+        db = firestore.Client()
+        data = db.collection(CLIO_USERS).document(email).get()
+        data = data.to_dict()
+        if data is None:
+            data = {}
+        USER_CACHE[email] = data 
+    
+    auth_data = USER_CACHE[email]
 
-    # add special owner role if relevant
-    if email == OWNER and "owner" not in roles:
-        roles.append("owner")
+    if "clio_global" in auth_data:
+        roles = roles.union(auth_data["clio_global"])
+    if "datasets" in auth_data and dataset in auth_data["datasets"]:
+        roles =  roles.union(auth_data["datasets"][dataset])
 
     return roles
 
@@ -630,7 +629,8 @@ def find_similar_signatures(dataset, x, y, z):
 
     return pruned_results
 
-def getSignature(roles, dataset, point):
+def getSignature(email, dataset, point):
+    roles = get_roles(email, dataset)
     if "clio_general" not in roles:
         abort(403)
 
@@ -641,7 +641,8 @@ def getSignature(roles, dataset, point):
         res = {"messsage": str(e)}
     return json.dumps(res)
 
-def getMatches(roles, dataset, point):
+def getMatches(email, dataset, point):
+    roles = get_roles(email, dataset)
     if "clio_general" not in roles:
         abort(403)
 
@@ -683,10 +684,11 @@ def main(request):
     auth = authlist[1]
 
     # check user auth and populate cache
-    roles = []
+    email = "" 
     try:
-        roles = get_auth(auth)
+        email = get_auth_email(auth)
     except Exception as e:
+        print(e)
         abort(401)
 
     pathinfo = request.path.strip("/")
@@ -698,11 +700,9 @@ def main(request):
     # if data is posted it should be in JSON format
     jsondata = request.get_json(force=True, silent=True)
     
-    print(urlparts)
-
     # GET/POST/DELETE dataset information
     if urlparts[0] == "datasets":
-        resp = handlerDatasets(roles, jsondata, request.method)
+        resp = handlerDatasets(email, jsondata, request.method)
     # GET/POST/PUT/DELETE /annotations/[dataset]?x=X,y=Y,z=Z
     elif urlparts[0] == "annotations" and len(urlparts) == 2:
         dataset = urlparts[1]
@@ -710,7 +710,7 @@ def main(request):
         x = request.args.get('x')
         y = request.args.get('y')
         z = request.args.get('z')
-        resp = handlerAnnotations(roles, dataset, (x,y,z), jsondata, request.method)
+        resp = handlerAnnotations(email, dataset, (x,y,z), jsondata, request.method)
     elif urlparts[0] == "atlas" and len(urlparts) == 2:
         """Similar to 'annotataions' with the following exceptions.
         
@@ -730,29 +730,30 @@ def main(request):
         x = request.args.get('x')
         y = request.args.get('y')
         z = request.args.get('z')
-        resp = handlerAtlas(roles, dataset, (x,y,z), jsondata, request.method)
+        resp = handlerAtlas(email, dataset, (x,y,z), jsondata, request.method)
     # GET /users -- return all users and auth (admin)
     # POST /users -- add user and auth
     elif urlparts[0] == "users":
-        resp = handlerUsers(roles, jsondata, request.method) 
+        resp = handlerUsers(email, jsondata, request.method) 
     elif urlparts[0] == "roles":
-        resp = json.dumps(roles)
+        _ = get_roles(email)
+        resp = json.dumps(USER_CACHE[email])
     elif urlparts[0] == "transfer":
-        resp = transferData(roles, jsondata)
+        resp = transferData(email, jsondata)
     elif urlparts[0] == "signatures" and len(urlparts) == 3 and urlparts[1] == "atlocation":
         dataset = urlparts[2]
         # not necessary for a GET request
         x = int(request.args.get('x'))
         y = int(request.args.get('y'))
         z = int(request.args.get('z'))
-        resp = getSignature(roles, dataset, (x,y,z))
+        resp = getSignature(email, dataset, (x,y,z))
     elif urlparts[0] == "signatures" and len(urlparts) == 3 and urlparts[1] == "likelocation":
         dataset = urlparts[2]
         # not necessary for a GET request
         x = int(request.args.get('x'))
         y = int(request.args.get('y'))
         z = int(request.args.get('z'))
-        resp = getMatches(roles, dataset, (x,y,z))
+        resp = getMatches(email, dataset, (x,y,z))
     else:
         abort(400)
 
