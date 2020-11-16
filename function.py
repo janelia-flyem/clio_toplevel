@@ -86,16 +86,13 @@ def transferData(email, jsondata):
         # get dataset info and check model
         datasets_info = {}
         
-        client = Client()
-        # The kind for the new entity
-        kind = GROUPNAME
-        # The Cloud Datastore key for the new entity
-        key = client.key(kind, "datasets")
+        
         try:
-            task = client.get(key)
-            # no datasets saved
-            if task:
-                datasets_info = task
+            db = firestore.Client()
+            datasets = db.collection(CLIO_DATASETS).get()
+            for dataset in datasets:
+                if dataset.id == jsondata["dataset"]:
+                    datasets_info[dataset.id] = dataset.to_dict()
         except Exception:
             abort(400)
 
