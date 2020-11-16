@@ -391,8 +391,9 @@ def handlerDatasets(email, dataset_info, method):
             datasets = db.collection(CLIO_DATASETS).get()
             datasets_out = {}
             for dataset in datasets:
-                if "clio_general" in roles or dataset.id in datasets_roles: 
-                    datasets_out[dataset.id] = dataset.to_dict()
+                dataset_info = dataset.to_dict()
+                if "clio_general" in roles or dataset.id in datasets_roles or dataset_info.get("public", False): 
+                    datasets_out[dataset.id] = dataset_info
             return json.dumps(datasets_out)
         except Exception as e:
             print(e)
