@@ -376,20 +376,23 @@ def handlerDatasets(email, dataset_info, method):
 
     # TODO: look at per dataset auth
 
-    if "clio_general" not in roles:
-        abort(403)
-
     if (method == "POST" or method == "DELETE" or method == "PUT") and "admin" not in roles:
         abort(403)
 
     db = firestore.Client()
 
     if method == "GET":
+        datasets_roles = set()
+        if "datasets" in USER_CACHE[email]:
+            for key, val in USER_CACHE[email]["datasets"].items():
+                if "clio_general" in val:
+                    datasets_roles.add(key)
         try:
             datasets = db.collection(CLIO_DATASETS).get()
             datasets_out = {}
             for dataset in datasets:
-                datasets_out[dataset.id] = dataset.to_dict()
+                if "clio_general" in roles or dataset.id in datasets_roles: 
+                    datasets_out[dataset.id] = dataset.to_dict()
             return json.dumps(datasets_out)
         except Exception as e:
             print(e)
