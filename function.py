@@ -28,13 +28,13 @@ OWNER = os.environ["OWNER"]
 SIG_BUCKET = os.environ["SIG_BUCKET"]
 SIG_CACHE = None # dataset to meta data caache for signature image search
 SIG_DATASET_SUFFIX = "_imgsearch"
-MAX_DISTANCE = 100 # 100 pixels (TODO: make dynamic) 
+MAX_DISTANCE = 100 # 100 pixels (TODO: make dynamic)
 
 # transfer cloud run location and destination bucket
 TRANSFER_FUNC = os.environ["TRANSFER_FUNC"]
 TRANSFER_DEST = os.environ["TRANSFER_DEST"]
 
-USER_CACHE = {} 
+USER_CACHE = {}
 
 """Supported roles:
 
@@ -53,9 +53,18 @@ CLIO_USERS = "clio_users"
 # firestore dataset collection name
 CLIO_DATASETS = "clio_datasets"
 
+
+def make_error_response(code=500, error=""):
+    resp = make_response(error, code)
+    resp.headers['Access-Control-Allow-Origin'] = '*'
+    resp.headers['Access-Control-Allow-Methods'] = 'POST, GET, DELETE, OPTIONS'
+    resp.headers['Access-Control-Allow-Headers'] = 'Authorization, Content-Type'
+    return resp
+
+
 def transferData(email, jsondata):
     """Transfer data for the given dataset, location, and model.
-    
+
     JSON format
 
     {
@@ -65,10 +74,10 @@ def transferData(email, jsondata):
     }
 
     """
-    
+
     roles = get_roles(email, dataset)
     if "clio_general" not in roles:
-        abort(403)
+        abort(make_error_response(403))
 
     """Json schema for cloud run request.
 
@@ -85,8 +94,8 @@ def transferData(email, jsondata):
     try:
         # get dataset info and check model
         datasets_info = {}
-        
-        
+
+
         try:
             db = firestore.Client()
             datasets = db.collection(CLIO_DATASETS).get()
@@ -94,16 +103,16 @@ def transferData(email, jsondata):
                 if dataset.id == jsondata["dataset"]:
                     datasets_info[dataset.id] = dataset.to_dict()
         except Exception:
-            abort(400)
+            abort(make_error_response(400))
 
         # is model in the dataset meta
         if jsondata["dataset"] not in datasets_info:
-            abort(400)
+            abort(make_error_response(400))
         dataset_info = datasets_info[jsondata["dataset"]]
         if "transfer" not in dataset_info:
-            abort(400)
+            abort(make_error_response(400))
         if jsondata["model_name"] not in dataset_info["transfer"]:
-            abort(400)
+            abort(make_error_response(400))
         dataset_source = dataset_info["location"]
 
         # create random meta
@@ -152,7 +161,7 @@ def transferData(email, jsondata):
         jwt = token_response.content.decode("utf-8")
 
         headers = {}
-        headers["Content-type"] = "application/json" 
+        headers["Content-type"] = "application/json"
         # Provide the token in the request to the receiving service
         headers["Authorization"] = f"Bearer {jwt}"
 
@@ -179,7 +188,7 @@ def transferData(email, jsondata):
                         config_temp = config_cr.copy()
                         base = config_temp["glbstart"]
                         config_temp["start"] = [base[0]+xiter, base[1]+yiter, base[2]+ziter]
-                        # occaaional errors are not critically important 
+                        # occaaional errors are not critically important
                         retries = 10
                         while retries > 0:
                             resp = requests2.post(TRANSFER_FUNC, data=json.dumps(config_temp), headers=headers)
@@ -203,20 +212,20 @@ def transferData(email, jsondata):
 
 def handlerAtlas(email, dataset, point, jsondata, method):
     """Enables annotations for a dataset.
-    
+
     Data is stored indexed uniquely to an x,y,z.  Post
     should only be one synapse at a time.  The json payload
     is arbitrary.
     """
 
-    # TODO: add dataset-specific GET 
+    # TODO: add dataset-specific GET
 
     roles = get_roles(email, dataset)
     if "clio_general" not in roles:
-        abort(403)
+        abort(make_error_response(403))
 
     if (method == "POST" or method == "DELETE") and ("clio_write" not in roles):
-        abort(403)
+        abort(make_error_response(403))
 
     # Instantiates a client
     client = Client()
@@ -246,10 +255,10 @@ def handlerAtlas(email, dataset, point, jsondata, method):
                     if val["dataset"] == dataset:
                         point_str = f'{val["location"][0]}_{val["location"][1]}_{val["location"][2]}'
                         output[point_str] = val
-            
+
             return json.dumps(output)
         except Exception as e:
-            abort(400)
+            abort(make_error_response(400))
     elif method == "POST" or method == "PUT":
         try:
             # check formaat
@@ -273,14 +282,14 @@ def handlerAtlas(email, dataset, point, jsondata, method):
                 task.update(payload)
                 client.put(task)
         except:
-            abort(400)
+            abort(make_error_response(400))
     elif method == "DELETE":
         # info should be [ name1, name2, etc]
         try:
             with client.transaction():
                 task = client.get(key)
                 if not task:
-                    abort(400)
+                    abort(make_error_response(400))
                 else:
                     point_str = dataset + ":" + str(point[0]) + "_" + str(point[1]) + "_" + str(point[2])
                     if point_str in task:
@@ -288,24 +297,24 @@ def handlerAtlas(email, dataset, point, jsondata, method):
                 client.put(task)
         except Exception as e:
             print(e)
-            abort(400)
+            abort(make_error_response(400))
     else:
-        abort(400)
+        abort(make_error_response(400))
 
     return ""
 
 
 def handlerAnnotations(email, dataset, point, jsondata, method):
     """Enables annotations for a dataset.
-    
+
     Data is stored indexed uniquely to an x,y,z.  Post
     should only be one synapse at a time.  The json payload
     is arbitrary.
     """
-   
+
     roles = get_roles(email, dataset)
     if "clio_general" not in roles:
-        return abort(403)
+        return abort(make_error_response(403))
 
     # Instantiates a client
     client = Client()
@@ -322,7 +331,7 @@ def handlerAnnotations(email, dataset, point, jsondata, method):
                 return json.dumps({})
             return json.dumps(task)
         except Exception as e:
-            abort(400)
+            abort(make_error_response(400))
     elif method == "POST" or method == "PUT":
         try:
             with client.transaction():
@@ -335,14 +344,14 @@ def handlerAnnotations(email, dataset, point, jsondata, method):
                 task.update(payload)
                 client.put(task)
         except:
-            abort(400)
+            abort(make_error_response(400))
     elif method == "DELETE":
         # info should be [ name1, name2, etc]
         try:
             with client.transaction():
                 task = client.get(key)
                 if not task:
-                    abort(400)
+                    abort(make_error_response(400))
                 else:
                     point_str = str(point[0]) + "_" + str(point[1]) + "_" + str(point[2])
                     if point_str in task:
@@ -350,9 +359,9 @@ def handlerAnnotations(email, dataset, point, jsondata, method):
                 client.put(task)
         except Exception as e:
             print(e)
-            abort(400)
+            abort(make_error_response(400))
     else:
-        abort(400)
+        abort(make_error_response(400))
 
     return ""
 
@@ -368,13 +377,13 @@ def handlerDatasets(email, dataset_info, method):
     dataset_info is empty for a GET, is a diction
     for a POST, and is a list of datasets for a DELETE.
     """
-   
+
     roles = get_roles(email)
 
     # TODO: look at per dataset auth
 
     if (method == "POST" or method == "DELETE" or method == "PUT") and "admin" not in roles:
-        abort(403)
+        abort(make_error_response(403))
 
     db = firestore.Client()
 
@@ -389,19 +398,19 @@ def handlerDatasets(email, dataset_info, method):
             datasets_out = {}
             for dataset in datasets:
                 dataset_info = dataset.to_dict()
-                if "clio_general" in roles or dataset.id in datasets_roles or dataset_info.get("public", False): 
+                if "clio_general" in roles or dataset.id in datasets_roles or dataset_info.get("public", False):
                     datasets_out[dataset.id] = dataset_info
             return json.dumps(datasets_out)
         except Exception as e:
             print(e)
-            abort(400)
+            abort(make_error_response(400))
     elif method == "POST" or method == "PUT":
         try:
             for dataset, data in dataset_info.items():
                 db.collection(CLIO_DATASETS).document(dataset).set(data)
         except Exception as e:
             print(e)
-            abort(400)
+            abort(make_error_response(400))
     elif method == "DELETE":
         # info should be [ name1, name2, etc]
         try:
@@ -409,19 +418,19 @@ def handlerDatasets(email, dataset_info, method):
                 db.collection(CLIO_DATASETS).document(dataset).delete()
         except Exception as e:
             print(e)
-            abort(400)
+            abort(make_error_response(400))
     else:
-        abort(400)
+        abort(make_error_response(400))
 
     return ""
 
 def handlerUsers(email, userdata, method):
     global USER_CACHE
-    
+
     roles = get_roles(email)
     # allow admin to have access
     if "admin" not in roles:
-        abort(403)
+        abort(make_error_response(403))
 
     db = firestore.Client()
 
@@ -434,7 +443,7 @@ def handlerUsers(email, userdata, method):
             return json.dumps(user_out)
         except Exception as e:
             print(e)
-            abort(400)
+            abort(make_error_response(400))
     elif method == "POST" or method == "PUT":
         # add / replace user data
         try:
@@ -444,7 +453,7 @@ def handlerUsers(email, userdata, method):
                 USER_CACHE[user] = data
         except Exception as e:
             print(e)
-            abort(400)
+            abort(make_error_response(400))
     elif method == "DELETE":
         try:
             for user in userdata:
@@ -452,9 +461,9 @@ def handlerUsers(email, userdata, method):
                 del USER_CACHE[user]
         except Exception as e:
             print(e)
-            abort(400)
+            abort(make_error_response(400))
     else:
-        abort(400)
+        abort(make_error_response(400))
 
     return ""
 
@@ -463,8 +472,8 @@ def get_auth_email(token):
 
     Throws exception if token is invalid.
     """
-    idinfo = id_token.verify_oauth2_token(token, requests.Request()) 
-   
+    idinfo = id_token.verify_oauth2_token(token, requests.Request())
+
     # grab lower-case version of email
     return idinfo["email"].lower()
 
@@ -472,7 +481,7 @@ def get_roles(email, dataset=""):
     """Check google token and return user roles.
     """
     global USER_CACHE
-    
+
     # TODO: auto refresh if cache is >10 minutes old
 
     roles = set()
@@ -484,8 +493,8 @@ def get_roles(email, dataset=""):
         data = data.to_dict()
         if data is None:
             data = {}
-        USER_CACHE[email] = data 
-    
+        USER_CACHE[email] = data
+
     auth_data = USER_CACHE[email]
 
     if "clio_global" in auth_data:
@@ -506,7 +515,7 @@ def fetch_signature(dataset, x, y, z):
     if SIG_CACHE is not None and dataset in SIG_CACHE:
         meta = SIG_CACHE[dataset]
     else:
-        blob = bucket.blob(dataset + "/info.json") 
+        blob = bucket.blob(dataset + "/info.json")
         try:
             meta = json.loads(blob.download_as_string())
             if SIG_CACHE is None:
@@ -530,7 +539,7 @@ def fetch_signature(dataset, x, y, z):
 
     def distance(pt):
         return (((x-pt[0])**2 + (y-pt[1])**2 + (z-pt[2])**2)**(0.5))
-    
+
     # grab block and find closest match
     try:
         RECORD_SIZE = 20 # 20 bytes per x,y,z,signature
@@ -561,10 +570,10 @@ def fetch_signature(dataset, x, y, z):
 def murmur64(h):
     h ^= h >> 33
     h *= 0xff51afd7ed558ccd
-    h &= 0xFFFFFFFFFFFFFFFF 
+    h &= 0xFFFFFFFFFFFFFFFF
     h ^= h >> 33
     h *= 0xc4ceb9fe1a85ec53
-    h &= 0xFFFFFFFFFFFFFFFF 
+    h &= 0xFFFFFFFFFFFFFFFF
     h ^= h >> 33
     return h
 
@@ -572,7 +581,7 @@ def murmur64(h):
 def find_similar_signatures(dataset, x, y, z):
     # don't catch error if there is one
     point, signature = fetch_signature(dataset, x, y, z)
-    meta = SIG_CACHE[dataset]    
+    meta = SIG_CACHE[dataset]
     PARTITIONS = 4000
 
     # find partitions for the signature
@@ -580,7 +589,7 @@ def find_similar_signatures(dataset, x, y, z):
     part1 = murmur64(int(meta["ham_1"]) & signature) % PARTITIONS
     part2 = murmur64(int(meta["ham_2"]) & signature) % PARTITIONS
     part3 = murmur64(int(meta["ham_3"]) & signature) % PARTITIONS
-   
+
     """
     part0 = murmur64(signature) % PARTITIONS
     part1 = murmur64(signature) % PARTITIONS
@@ -594,13 +603,13 @@ def find_similar_signatures(dataset, x, y, z):
     SQL += f"SELECT signature, BIT_COUNT(signature^{signature}) AS hamming, x, y, z FROM `{dataset}{SIG_DATASET_SUFFIX}.hamming1`\nWHERE part={part1} AND BIT_COUNT(signature^{signature}) < {max_ham}\nUNION DISTINCT\n"
     SQL += f"SELECT signature, BIT_COUNT(signature^{signature}) AS hamming, x, y, z FROM `{dataset}{SIG_DATASET_SUFFIX}.hamming2`\nWHERE part={part2} AND BIT_COUNT(signature^{signature}) < {max_ham}\nUNION DISTINCT\n"
     SQL += f"SELECT signature, BIT_COUNT(signature^{signature}) AS hamming, x, y, z FROM `{dataset}{SIG_DATASET_SUFFIX}.hamming3`\nWHERE part={part3} AND BIT_COUNT(signature^{signature}) < {max_ham}\n"
-    SQL += f"ORDER BY BIT_COUNT(signature^{signature}), rand()\nLIMIT 200" 
+    SQL += f"ORDER BY BIT_COUNT(signature^{signature}), rand()\nLIMIT 200"
 
     client = bigquery.Client()
 
     query_job = client.query(SQL)
     results = query_job.result()
-    
+
     all_points = [[x,y,z]]
     def distance(pt):
         best = 999999999999
@@ -613,7 +622,7 @@ def find_similar_signatures(dataset, x, y, z):
     pruned_results = []
     for row in results:
         # load results
-        if distance((row.x, row.y, row.z)) > MAX_DISTANCE: 
+        if distance((row.x, row.y, row.z)) > MAX_DISTANCE:
             pruned_results.append({"point": [row.x, row.y, row.z], "dist": row.hamming, "score": (1.0-row.hamming/max_ham)})
             all_points.append([row.x, row.y, row.z])
 
@@ -622,7 +631,7 @@ def find_similar_signatures(dataset, x, y, z):
 def getSignature(email, dataset, point):
     roles = get_roles(email, dataset)
     if "clio_general" not in roles:
-        abort(403)
+        abort(make_error_response(403))
 
     try:
         pt, sig = fetch_signature(dataset, *point)
@@ -634,7 +643,7 @@ def getSignature(email, dataset, point):
 def getMatches(email, dataset, point):
     roles = get_roles(email, dataset)
     if "clio_general" not in roles:
-        abort(403)
+        abort(make_error_response(403))
 
     try:
         data = find_similar_signatures(dataset, *point)
@@ -667,29 +676,29 @@ def main(request):
     # extract google token
     auth = request.headers.get('authorization')
     if auth is None or auth == "":
-        abort(401)
+        abort(make_error_response(401))
     authlist = auth.split(' ')
     if len(authlist) != 2:
-        abort(401) # Bearer must be specified
+        abort(make_error_response(401))  # Bearer must be specified
     auth = authlist[1]
 
     # check user auth and populate cache
-    email = "" 
+    email = ""
     try:
         email = get_auth_email(auth)
     except Exception as e:
         print(e)
-        abort(401)
+        abort(make_error_response(401))
 
     pathinfo = request.path.strip("/")
     urlparts = pathinfo.split('/')
 
     if len(urlparts) == 0:
-        abort(400)
+        abort(make_error_response(400))
 
     # if data is posted it should be in JSON format
     jsondata = request.get_json(force=True, silent=True)
-    
+
     # GET/POST/DELETE dataset information
     if urlparts[0] == "datasets":
         resp = handlerDatasets(email, jsondata, request.method)
@@ -703,7 +712,7 @@ def main(request):
         resp = handlerAnnotations(email, dataset, (x,y,z), jsondata, request.method)
     elif urlparts[0] == "atlas" and len(urlparts) == 2:
         """Similar to 'annotataions' with the following exceptions.
-        
+
         Posted JSON must have the following format:
 
         * title
@@ -724,7 +733,7 @@ def main(request):
     # GET /users -- return all users and auth (admin)
     # POST /users -- add user and auth
     elif urlparts[0] == "users":
-        resp = handlerUsers(email, jsondata, request.method) 
+        resp = handlerUsers(email, jsondata, request.method)
     elif urlparts[0] == "roles":
         _ = get_roles(email)
         resp = json.dumps(USER_CACHE[email])
@@ -745,12 +754,12 @@ def main(request):
         z = int(request.args.get('z'))
         resp = getMatches(email, dataset, (x,y,z))
     else:
-        abort(400)
+        abort(make_error_response(400))
 
-    # make response 
+    # make response
     if type(resp) == str:
         resp = make_response(resp)
-        
+
     resp.headers['Access-Control-Allow-Origin'] = '*'
     resp.headers['Access-Control-Allow-Headers'] = 'Authorization, Content-Type'
     resp.headers['Access-Control-Allow-Methods'] = 'POST, GET, DELETE, OPTIONS'
