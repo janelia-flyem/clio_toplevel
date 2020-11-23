@@ -53,6 +53,15 @@ CLIO_USERS = "clio_users"
 # firestore dataset collection name
 CLIO_DATASETS = "clio_datasets"
 
+
+def make_error_response(code=500, error=""):
+    resp = make_response(error, code)
+    resp.headers['Access-Control-Allow-Origin'] = '*'
+    resp.headers['Access-Control-Allow-Methods'] = 'POST, GET, DELETE, OPTIONS'
+    resp.headers['Access-Control-Allow-Headers'] = 'Authorization, Content-Type'
+    return resp
+
+
 def transferData(email, jsondata):
     """Transfer data for the given dataset, location, and model.
 
@@ -68,7 +77,7 @@ def transferData(email, jsondata):
 
     roles = get_roles(email, dataset)
     if "clio_general" not in roles:
-        abort(403)
+        abort(make_error_response(403))
 
     """Json schema for cloud run request.
 
@@ -94,16 +103,16 @@ def transferData(email, jsondata):
                 if dataset.id == jsondata["dataset"]:
                     datasets_info[dataset.id] = dataset.to_dict()
         except Exception:
-            abort(400)
+            abort(make_error_response(400))
 
         # is model in the dataset meta
         if jsondata["dataset"] not in datasets_info:
-            abort(400)
+            abort(make_error_response(400))
         dataset_info = datasets_info[jsondata["dataset"]]
         if "transfer" not in dataset_info:
-            abort(400)
+            abort(make_error_response(400))
         if jsondata["model_name"] not in dataset_info["transfer"]:
-            abort(400)
+            abort(make_error_response(400))
         dataset_source = dataset_info["location"]
 
         # create random meta
@@ -213,10 +222,10 @@ def handlerAtlas(email, dataset, point, jsondata, method):
 
     roles = get_roles(email, dataset)
     if "clio_general" not in roles:
-        abort(403)
+        abort(make_error_response(403))
 
     if (method == "POST" or method == "DELETE") and ("clio_write" not in roles):
-        abort(403)
+        abort(make_error_response(403))
 
     # Instantiates a client
     client = Client()
@@ -249,7 +258,7 @@ def handlerAtlas(email, dataset, point, jsondata, method):
 
             return json.dumps(output)
         except Exception as e:
-            abort(400)
+            abort(make_error_response(400))
     elif method == "POST" or method == "PUT":
         try:
             # check formaat
@@ -273,14 +282,14 @@ def handlerAtlas(email, dataset, point, jsondata, method):
                 task.update(payload)
                 client.put(task)
         except:
-            abort(400)
+            abort(make_error_response(400))
     elif method == "DELETE":
         # info should be [ name1, name2, etc]
         try:
             with client.transaction():
                 task = client.get(key)
                 if not task:
-                    abort(400)
+                    abort(make_error_response(400))
                 else:
                     point_str = dataset + ":" + str(point[0]) + "_" + str(point[1]) + "_" + str(point[2])
                     if point_str in task:
@@ -288,9 +297,9 @@ def handlerAtlas(email, dataset, point, jsondata, method):
                 client.put(task)
         except Exception as e:
             print(e)
-            abort(400)
+            abort(make_error_response(400))
     else:
-        abort(400)
+        abort(make_error_response(400))
 
     return ""
 
@@ -305,7 +314,7 @@ def handlerAnnotations(email, dataset, point, jsondata, method):
 
     roles = get_roles(email, dataset)
     if "clio_general" not in roles:
-        return abort(403)
+        return abort(make_error_response(403))
 
     # Instantiates a client
     client = Client()
@@ -322,7 +331,7 @@ def handlerAnnotations(email, dataset, point, jsondata, method):
                 return json.dumps({})
             return json.dumps(task)
         except Exception as e:
-            abort(400)
+            abort(make_error_response(400))
     elif method == "POST" or method == "PUT":
         try:
             with client.transaction():
@@ -335,14 +344,14 @@ def handlerAnnotations(email, dataset, point, jsondata, method):
                 task.update(payload)
                 client.put(task)
         except:
-            abort(400)
+            abort(make_error_response(400))
     elif method == "DELETE":
         # info should be [ name1, name2, etc]
         try:
             with client.transaction():
                 task = client.get(key)
                 if not task:
-                    abort(400)
+                    abort(make_error_response(400))
                 else:
                     point_str = str(point[0]) + "_" + str(point[1]) + "_" + str(point[2])
                     if point_str in task:
@@ -350,9 +359,9 @@ def handlerAnnotations(email, dataset, point, jsondata, method):
                 client.put(task)
         except Exception as e:
             print(e)
-            abort(400)
+            abort(make_error_response(400))
     else:
-        abort(400)
+        abort(make_error_response(400))
 
     return ""
 
@@ -374,7 +383,7 @@ def handlerDatasets(email, dataset_info, method):
     # TODO: look at per dataset auth
 
     if (method == "POST" or method == "DELETE" or method == "PUT") and "admin" not in roles:
-        abort(403)
+        abort(make_error_response(403))
 
     db = firestore.Client()
 
@@ -394,14 +403,14 @@ def handlerDatasets(email, dataset_info, method):
             return json.dumps(datasets_out)
         except Exception as e:
             print(e)
-            abort(400)
+            abort(make_error_response(400))
     elif method == "POST" or method == "PUT":
         try:
             for dataset, data in dataset_info.items():
                 db.collection(CLIO_DATASETS).document(dataset).set(data)
         except Exception as e:
             print(e)
-            abort(400)
+            abort(make_error_response(400))
     elif method == "DELETE":
         # info should be [ name1, name2, etc]
         try:
@@ -409,9 +418,9 @@ def handlerDatasets(email, dataset_info, method):
                 db.collection(CLIO_DATASETS).document(dataset).delete()
         except Exception as e:
             print(e)
-            abort(400)
+            abort(make_error_response(400))
     else:
-        abort(400)
+        abort(make_error_response(400))
 
     return ""
 
@@ -421,7 +430,7 @@ def handlerUsers(email, userdata, method):
     roles = get_roles(email)
     # allow admin to have access
     if "admin" not in roles:
-        abort(403)
+        abort(make_error_response(403))
 
     db = firestore.Client()
 
@@ -434,7 +443,7 @@ def handlerUsers(email, userdata, method):
             return json.dumps(user_out)
         except Exception as e:
             print(e)
-            abort(400)
+            abort(make_error_response(400))
     elif method == "POST" or method == "PUT":
         # add / replace user data
         try:
@@ -444,7 +453,7 @@ def handlerUsers(email, userdata, method):
                 USER_CACHE[user] = data
         except Exception as e:
             print(e)
-            abort(400)
+            abort(make_error_response(400))
     elif method == "DELETE":
         try:
             for user in userdata:
@@ -452,9 +461,9 @@ def handlerUsers(email, userdata, method):
                 del USER_CACHE[user]
         except Exception as e:
             print(e)
-            abort(400)
+            abort(make_error_response(400))
     else:
-        abort(400)
+        abort(make_error_response(400))
 
     return ""
 
@@ -622,7 +631,7 @@ def find_similar_signatures(dataset, x, y, z):
 def getSignature(email, dataset, point):
     roles = get_roles(email, dataset)
     if "clio_general" not in roles:
-        abort(403)
+        abort(make_error_response(403))
 
     try:
         pt, sig = fetch_signature(dataset, *point)
@@ -634,7 +643,7 @@ def getSignature(email, dataset, point):
 def getMatches(email, dataset, point):
     roles = get_roles(email, dataset)
     if "clio_general" not in roles:
-        abort(403)
+        abort(make_error_response(403))
 
     try:
         data = find_similar_signatures(dataset, *point)
@@ -667,10 +676,10 @@ def main(request):
     # extract google token
     auth = request.headers.get('authorization')
     if auth is None or auth == "":
-        abort(401)
+        abort(make_error_response(401))
     authlist = auth.split(' ')
     if len(authlist) != 2:
-        abort(401) # Bearer must be specified
+        abort(make_error_response(401))  # Bearer must be specified
     auth = authlist[1]
 
     # check user auth and populate cache
@@ -679,13 +688,13 @@ def main(request):
         email = get_auth_email(auth)
     except Exception as e:
         print(e)
-        abort(401)
+        abort(make_error_response(401))
 
     pathinfo = request.path.strip("/")
     urlparts = pathinfo.split('/')
 
     if len(urlparts) == 0:
-        abort(400)
+        abort(make_error_response(400))
 
     # if data is posted it should be in JSON format
     jsondata = request.get_json(force=True, silent=True)
@@ -745,7 +754,7 @@ def main(request):
         z = int(request.args.get('z'))
         resp = getMatches(email, dataset, (x,y,z))
     else:
-        abort(400)
+        abort(make_error_response(400))
 
     # make response
     if type(resp) == str:
