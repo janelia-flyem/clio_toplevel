@@ -16,12 +16,26 @@ be set to the location of google storaage bucket containing
 the dataset signatures.  "TRANSFER_FUNC" and "TRANSFER_DEST" also need to be set
 for the transfer network cloud run location and cache location.
 
+## Note on authentication and authorization
+
+The API is authenticated using a Google identification token, which can be retrieved using
+a client side oauth2 javascript client (or using gcloud as in the below examples).  Permissions
+are setup to be per dataset and global to clio.  The "clio_general" authorization level
+enables a user to add private annotations and view the data associated with the dataset.
+"clio_write" enables cross-user global write operations.  "admin" is needed for user management.
+Datasets can be marked public, which makes them effectively "clio_general" by default.
+Specific applications that work within the clio environment
+are welcome to define custom roles or granularity at the dataset or global level.
+
+For now, a token is validated on Google for each invocation but future work involves creating
+a JWT, which might be necessary for some low-latency use cases.
+
 ## API
 
 ### datasets
 
 Datasets are stored in a dictionary where the key is a unique dataset name and the value is the description
-and location of the dataset.
+and location of the dataset.  If the property "public=true", the dataset will have clio_general privileges to the public. 
 
 Post datasets (can post multiple, will overwrite pre-existing):
 	
@@ -130,9 +144,12 @@ Find matching points for a signature near a given point:
 
 Admins and the owner can retrieve a list of users, update roles and add new users, and delete users.
 
+Clio supports a list of roles at a global level "clio_global" or per dataset under the "datasets" object.
+Cli
+
 Add new user(s) or update roles (roles must be a list):
 	
-	% curl -X POST -H "Content-Type: application/json"  --header "Authorization: Bearer $(gcloud auth print-identity-token)" https://us-east4-flyem-private.cloudfunctions.net/clio_toplevel/users -d '{"foobar@gmail.com": ["admin", "clio_general" ]}'
+	% curl -X POST -H "Content-Type: application/json"  --header "Authorization: Bearer $(gcloud auth print-identity-token)" https://us-east4-flyem-private.cloudfunctions.net/clio_toplevel/users -d '{"foobar@gmail.com": {"clio_global": ["admin", "clio_general" ]}, "datasets": {"hemibrain": ["clio_write"]}}'
 
 Remove user(s):
 	
@@ -145,7 +162,8 @@ Retrieve users:
 ### for applications using this for auth
 
 This service can be used to authorize different applications provided that specified roles have been added
-to the user's authorization.  If a user is not on any of the auth lists, they will be given the role of "noauth". 
+to the user's authorization.  If a user is not on any of the auth lists, there will be a blank authorization
+object returned. 
 
 Determine the roles granted to: the users:
 
