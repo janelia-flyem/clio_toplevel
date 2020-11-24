@@ -1,5 +1,6 @@
 import json
 import os
+import traceback
 
 # import firestore (deprecates datastore)
 from google.cloud import firestore
@@ -16,12 +17,10 @@ import time
 import threading
 import string
 import random
-import traceback
 
 # Environment variables
 
 # name of application authorization group -- must be a name of kind
-GROUPNAME = "clio_toplevel"
 OWNER = os.environ["OWNER"]
 
 # constants for signature search
@@ -52,6 +51,9 @@ CLIO_USERS = "clio_users"
 
 # firestore dataset collection name
 CLIO_DATASETS = "clio_datasets"
+
+# firestore annotation collection name
+CLIO_ANNOTATIONS = "clio_annotations"
 
 
 def make_error_response(code=500, error=""):
@@ -210,6 +212,28 @@ def transferData(email, jsondata):
     except Exception as e:
         return make_response(traceback.format_exc(), 400)
 
+def handlerAtlasVerify(email, aid):
+    """Toggles validation status for an atlas annotation.
+
+    The ID is the unique key associated with each annotations.
+    The user must have clio write privilege for the given dataset.
+    """
+
+    db = firestore.Client()
+    ref = db.collection(CLIO_ANNOTATIONS).document("ATLAS").collection("annotations").document(aid)
+    entry = ref.get()
+    if entry:
+        data = entry.to_dict()    
+        data["verified"] = not data["verified"]
+        roles = get_roles(email, data["dataset"])
+        if "clio_write" in roles:
+            ref.set(data)
+        else:
+            abort(make_error_response(403))
+
+    return ""
+
+
 def handlerAtlas(email, dataset, point, jsondata, method):
     """Enables annotations for a dataset.
 
@@ -218,46 +242,70 @@ def handlerAtlas(email, dataset, point, jsondata, method):
     is arbitrary.
     """
 
-    # TODO: add dataset-specific GET
-
     roles = get_roles(email, dataset)
-    if "clio_general" not in roles:
-        abort(make_error_response(403))
+    auth_data = USER_CACHE[email]
+    db = firestore.Client()
+    #if "clio_general" not in roles:
+    #    abort(make_error_response(403))
 
-    if (method == "POST" or method == "DELETE") and ("clio_write" not in roles):
-        abort(make_error_response(403))
+    # fetch public datasets from global list (might need to cache!!)
+    # TODO cache dataset info
+    public_ds = set()
+    datasets = db.collection(CLIO_DATASETS).get()
+    for dataset_obj in datasets:
+        dataset_info = dataset_obj.to_dict()
+        if dataset_info.get("public", False):
+            public_ds.add(dataset_obj.id)
 
-    # Instantiates a client
-    client = Client()
-    # The kind for the new entity
-    kind = GROUPNAME
-    # The Cloud Datastore key for the new entity
-    key = client.key(kind, "atlas")
+    # the request will be specific to the dataset and user but the user must have clio_general permission
+    # or the dataset must be public
+    if (method == "DELETE" or method == "POST" or method == "PUT") and ("clio_general" not in roles) and dataset not in public_ds:
+        abort(make_error_response(403))
 
     if method == "GET":
         try:
-            task = client.get(key)
-            # no annotations saved
-            if not task:
-                if dataset == "all":
-                    return json.dumps([])
-                else:
-                    return json.dumps({})
+            """
+            Scenarios
 
+            1. if dataset given, return user bookmarks (easy, no additiona auth) 
+            2. if all, retrieve all auth'd datasets (either all or
+            specific datasets + public)
+
+            2a.  for clio write datasets, show unverfied and verified
+            2b.  for non clio write datasets, show verified and user
+
+            """
+   
             output = None
-            if dataset == "all":
-                output = []
-                for _, val in task.items():
-                    output.append(val)
-            else:
+            if dataset != "all":
                 output = {}
-                for _, val in task.items():
-                    if val["dataset"] == dataset:
-                        point_str = f'{val["location"][0]}_{val["location"][1]}_{val["location"][2]}'
-                        output[point_str] = val
+                annotations = db.collection(CLIO_ANNOTATIONS).document("ATLAS").collection("annotations").where("email", "==", email).where("dataset", "==", dataset).get()
 
+                for annotation in annotations:
+                    res = annotation.to_dict()
+                    res["id"] = annotation.id
+                    output[res["locationkey"]] = res
+            else:
+                output = []
+            
+                # fetch data
+                annotations = db.collection(CLIO_ANNOTATIONS).document("ATLAS").collection("annotations").get()
+                
+                # iterate through results
+                for annotation in annotations:
+                    res = annotation.to_dict()
+                    res["id"] = annotation.id
+
+                    # check if auth'd dataset
+                    d_roles = USER_CACHE[email].get("datasets", [])
+                    if res["dataset"] in public_ds or "clio_general" in roles or "clio_general" in d_roles:
+                        if res["verified"] or res["email"] == email:
+                            output.append(res)
+                        elif "clio_write" in roles or "clio_write" in d_roles:
+                            output.append(res)
             return json.dumps(output)
         except Exception as e:
+            #print(e)
             abort(make_error_response(400))
     elif method == "POST" or method == "PUT":
         try:
@@ -271,30 +319,21 @@ def handlerAtlas(email, dataset, point, jsondata, method):
             jsondata["timestamp"] = time.time()
             jsondata["dataset"] = dataset
             jsondata["location"] = [int(point[0]), int(point[1]), int(point[2])]
-
-            with client.transaction():
-                task = client.get(key)
-                if not task:
-                    task = Entity(key)
-                point_str = dataset + ":" + str(point[0]) + "_" + str(point[1]) + "_" + str(point[2])
-                payload = {}
-                payload[point_str] = jsondata
-                task.update(payload)
-                client.put(task)
-        except:
+            jsondata["locationkey"] = f"{point[0]}_{point[1]}_{point[2]}"
+            jsondata["email"] = email
+            jsondata["verified"] = False
+ 
+            db.collection(CLIO_ANNOTATIONS).document("ATLAS").collection("annotations").document().set(jsondata)
+        except Exception as e:
+            #print(e)
             abort(make_error_response(400))
     elif method == "DELETE":
-        # info should be [ name1, name2, etc]
         try:
-            with client.transaction():
-                task = client.get(key)
-                if not task:
-                    abort(make_error_response(400))
-                else:
-                    point_str = dataset + ":" + str(point[0]) + "_" + str(point[1]) + "_" + str(point[2])
-                    if point_str in task:
-                        del task[point_str]
-                client.put(task)
+            # delete only supported from interface
+            # (delete by dataset + user name + xyz)
+            match_list = db.collection(CLIO_ANNOTATIONS).document("ATLAS").collection("annotations").where("email", "==", email).where("locationkey", "==", f"{point[0]}_{point[1]}_{point[2]}").where("dataset", "==", dataset).get()
+            for match in match_list:
+                match.reference.delete()
         except Exception as e:
             print(e)
             abort(make_error_response(400))
@@ -730,6 +769,12 @@ def main(request):
         y = request.args.get('y')
         z = request.args.get('z')
         resp = handlerAtlas(email, dataset, (x,y,z), jsondata, request.method)
+    elif urlparts[0] == "atlas-verify" and len(urlparts) == 2:
+        """Toggle the verification status for an annotation with a given unique id.
+        """
+
+        aid = urlparts[1]
+        resp = handlerAtlasVerify(email, aid)
     # GET /users -- return all users and auth (admin)
     # POST /users -- add user and auth
     elif urlparts[0] == "users":

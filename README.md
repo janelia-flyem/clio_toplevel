@@ -61,12 +61,15 @@ as a cross-dataset glossary.  Unlike 'annotations', 'atlas' requires the followi
 
 	* title
 	* description
-	* user
 
 If the specified dataset is 'all' the annotations are returned across all datasets as a list.  The function
-also automatically adds aa timestaamp, location, and dataset field.
+also automatically adds a timestaamp, location, locationref (which is a string form of the location), a unique primary id, a verified status, and dataset field.
 
-Note: posting and deleting can only be done by users with the 'clio_atlas' or 'admin' role.
+The atlas annotations are initially saved as verified=False.  The user only sees their own annotations when searching by dataset.  When all annotations
+are requested, the user only sees annotations for the datasets they have clio_general privilege (or public datasets) that are verified or their own annotations.
+There is API to allow a user of clio_write privilege to verify an atlas entry.
+
+Note: posting and deleting can only be done by the user that owns the atlas annotation via the interface.
 
 Post atlas annotation (only one at a time, will overwrite pre-existing):
 	
@@ -74,7 +77,7 @@ Post atlas annotation (only one at a time, will overwrite pre-existing):
 	
 	% curl -X  POST -H "Content-Type: application/json"  --header "Authorization: Bearer $(gcloud auth print-identity-token)" https://us-east4-flyem-private.cloudfunctions.net/clio_toplevel/atlas/AbG?x=50\&y=30\&z=50 -d '{"title": "weird point", "description": "it is also strange", "user": "foo@bar"}'
 
-Get atlas annotations:
+Get atlas annotations for a dataset:
 	
 	% curl -X GET -H "Content-Type: application/json"  --header "Authorization: Bearer $(gcloud auth print-identity-token)" https://us-east4-flyem-private.cloudfunctions.net/clio_toplevel/atlas/mb20
 
@@ -86,7 +89,9 @@ Delete atlas annotation (only one at a time):
 
 	curl -X  DELETE -H "Content-Type: application/json"  --header "Authorization: Bearer $(gcloud auth print-identity-token)" https://us-east4-flyem-private.cloudfunctions.net/clio_toplevel/atlas/mb20?x=50\&y=30\&z=50
 
+Toggle verification status for a given annotation using the primary id viewable when retrieving annotations (the user must have clio_write privilege for the dataset).
 
+	curl -X POST -H "Content-Type: application/json"  --header "Authorization: Bearer $(gcloud auth print-identity-token)" https://us-east4-clio-294722.cloudfunctions.net/clio_toplevel/atlas-verify/PRIMARYKEY
 
 ### image transfer
 
