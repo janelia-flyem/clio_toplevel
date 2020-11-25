@@ -20,7 +20,7 @@ import random
 
 # Environment variables
 
-# name of application authorization group -- must be a name of kind
+# email of top level admin
 OWNER = os.environ["OWNER"]
 
 # constants for signature search
@@ -351,51 +351,51 @@ def handlerAnnotations(email, dataset, point, jsondata, method):
     is arbitrary.
     """
 
+    db = firestore.Client()
+    
+    # fetch public datasets from global list (might need to cache!!)
+    # TODO cache dataset info
+    public_ds = set()
+    datasets = db.collection(CLIO_DATASETS).get()
+    for dataset_obj in datasets:
+        dataset_info = dataset_obj.to_dict()
+        if dataset_info.get("public", False):
+            public_ds.add(dataset_obj.id)
+
     roles = get_roles(email, dataset)
-    if "clio_general" not in roles:
+    if "clio_general" not in roles and dataset not in public_ds:
         return abort(make_error_response(403))
 
-    # Instantiates a client
-    client = Client()
-    # The kind for the new entity
-    kind = GROUPNAME
-    # The Cloud Datastore key for the new entity
-    key = client.key(kind, dataset+"_annotations")
 
     if method == "GET":
         try:
-            task = client.get(key)
-            # no annotations saved
-            if not task:
-                return json.dumps({})
-            return json.dumps(task)
+            annotations = db.collection(CLIO_ANNOTATIONS).document("USER").collection("annotations").where("email", "==", email).where("dataset", "==", dataset).get()
+            output = {}
+            for annotation in annotations:
+                res = annotation.to_dict()
+                res["id"] = annotation.id
+                output[res["locationkey"]] = res
+            return json.dumps(output)
         except Exception as e:
             abort(make_error_response(400))
     elif method == "POST" or method == "PUT":
         try:
-            with client.transaction():
-                task = client.get(key)
-                if not task:
-                    task = Entity(key)
-                point_str = str(point[0]) + "_" + str(point[1]) + "_" + str(point[2])
-                payload = {}
-                payload[point_str] = jsondata
-                task.update(payload)
-                client.put(task)
+            
+            jsondata["timestamp"] = time.time()
+            jsondata["dataset"] = dataset
+            jsondata["location"] = [int(point[0]), int(point[1]), int(point[2])]
+            jsondata["locationkey"] = f"{point[0]}_{point[1]}_{point[2]}"
+            jsondata["email"] = email
+            db.collection(CLIO_ANNOTATIONS).document("USER").collection("annotations").document().set(jsondata)
         except:
             abort(make_error_response(400))
     elif method == "DELETE":
-        # info should be [ name1, name2, etc]
         try:
-            with client.transaction():
-                task = client.get(key)
-                if not task:
-                    abort(make_error_response(400))
-                else:
-                    point_str = str(point[0]) + "_" + str(point[1]) + "_" + str(point[2])
-                    if point_str in task:
-                        del task[point_str]
-                client.put(task)
+            # delete only supported from interface
+            # (delete by dataset + user name + xyz)
+            match_list = db.collection(CLIO_ANNOTATIONS).document("USER").collection("annotations").where("email", "==", email).where("locationkey", "==", f"{point[0]}_{point[1]}_{point[2]}").where("dataset", "==", dataset).get()
+            for match in match_list:
+                match.reference.delete()
         except Exception as e:
             print(e)
             abort(make_error_response(400))
