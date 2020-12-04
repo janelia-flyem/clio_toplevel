@@ -55,6 +55,8 @@ CLIO_DATASETS = "clio_datasets"
 # firestore annotation collection name
 CLIO_ANNOTATIONS = "clio_annotations"
 
+# firestore savedsearches collection name
+CLIO_SAVEDSEARCHES = "clio_savedsearches"
 
 def make_error_response(code=500, error=""):
     resp = make_response(error, code)
@@ -332,6 +334,72 @@ def handlerAtlas(email, dataset, point, jsondata, method):
             # delete only supported from interface
             # (delete by dataset + user name + xyz)
             match_list = db.collection(CLIO_ANNOTATIONS).document("ATLAS").collection("annotations").where("email", "==", email).where("locationkey", "==", f"{point[0]}_{point[1]}_{point[2]}").where("dataset", "==", dataset).get()
+            for match in match_list:
+                match.reference.delete()
+        except Exception as e:
+            print(e)
+            abort(make_error_response(400))
+    else:
+        abort(make_error_response(400))
+
+    return ""
+
+
+def handlerSavedSearches(email, dataset, point, jsondata, method):
+    """Enables savedsearches for a dataset.
+
+    Data is stored indexed uniquely to an x,y,z.  Post
+    should only be one synapse at a time.  The json payload
+    is arbitrary.
+    """
+
+    db = firestore.Client()
+    searches_collection = db.collection(CLIO_SAVEDSEARCHES).document("USER").collection("searches")
+
+    # fetch public datasets from global list (might need to cache!!)
+    # TODO cache dataset info
+    public_ds = set()
+    datasets = db.collection(CLIO_DATASETS).get()
+    for dataset_obj in datasets:
+        dataset_info = dataset_obj.to_dict()
+        if dataset_info.get("public", False):
+            public_ds.add(dataset_obj.id)
+
+    roles = get_roles(email, dataset)
+    if "clio_general" not in roles and dataset not in public_ds:
+        return abort(make_error_response(403))
+
+    if method == "GET":
+        try:
+            searches = searches_collection.where("email", "==", email).where("dataset", "==", dataset).get()
+            output = {}
+            for search in searches:
+                res = search.to_dict()
+                res["id"] = search.id
+                output[res["locationkey"]] = res
+            return json.dumps(output)
+        except Exception as e:
+            abort(make_error_response(400))
+    elif method == "POST" or method == "PUT":
+        try:
+
+            jsondata["timestamp"] = time.time()
+            jsondata["dataset"] = dataset
+            jsondata["location"] = [
+                    int(point[0]),
+                    int(point[1]),
+                    int(point[2])
+                ]
+            jsondata["locationkey"] = f"{point[0]}_{point[1]}_{point[2]}"
+            jsondata["email"] = email
+            searches_collection.document().set(jsondata)
+        except:
+            abort(make_error_response(400))
+    elif method == "DELETE":
+        try:
+            # delete only supported from interface
+            # (delete by dataset + user name + xyz)
+            match_list = searches_collection.where("email", "==", email).where("locationkey", "==", f"{point[0]}_{point[1]}_{point[2]}").where("dataset", "==", dataset).get()
             for match in match_list:
                 match.reference.delete()
         except Exception as e:
@@ -749,6 +817,19 @@ def main(request):
         y = request.args.get('y')
         z = request.args.get('z')
         resp = handlerAnnotations(email, dataset, (x,y,z), jsondata, request.method)
+    elif urlparts[0] == "savedsearches" and len(urlparts) == 2:
+        dataset = urlparts[1]
+        # not necessary for a GET request
+        x = request.args.get('x')
+        y = request.args.get('y')
+        z = request.args.get('z')
+        resp = handlerSavedSearches(
+            email,
+            dataset,
+            (x, y, z),
+            jsondata,
+            request.method
+        )
     elif urlparts[0] == "atlas" and len(urlparts) == 2:
         """Similar to 'annotataions' with the following exceptions.
 

@@ -68,6 +68,26 @@ Delete annotations (only one at a time):
 
 	curl -X  DELETE -H "Content-Type: application/json"  --header "Authorization: Bearer $(gcloud auth print-identity-token)" https://us-east4-flyem-private.cloudfunctions.net/clio_toplevel/annotations/mb20?x=50\&y=30\&z=50
 
+### Saved Searches
+
+Saved searches are stored in a dictionary where the key is a unique x_y_z string and the value is whatever dictionary
+payload that is provided by the application.  Saved searches are unique per dataset.  Saved searches  retrieval returns
+every search, so this is not designed for 10s of thousands of saved searches  In the example below, "mb20"
+is the name of the dataset.
+
+Post saved search (only one at a time, will overwrite pre-existing):
+
+	% curl -X  POST -H "Content-Type: application/json"  --header "Authorization: Bearer $(gcloud auth print-identity-token)" https://us-east4-flyem-private.cloudfunctions.net/clio_toplevel/savedsearches/mb20?x=50\&y=30\&z=50 -d '{"foo": "bar"}'
+
+Get saved searches:
+
+	% curl -X GET -H "Content-Type: application/json"  --header "Authorization: Bearer $(gcloud auth print-identity-token)" https://us-east4-flyem-private.cloudfunctions.net/clio_toplevel/savedsearches/mb20
+
+Delete saved search (only one at a time):
+
+	curl -X  DELETE -H "Content-Type: application/json"  --header "Authorization: Bearer $(gcloud auth print-identity-token)" https://us-east4-flyem-private.cloudfunctions.net/clio_toplevel/savedsearches/mb20?x=50\&y=30\&z=50
+
+
 ### Atlas
 
 The "atlas" endpoint is very similar to annotations but it meant for special mark-ups which can be used
