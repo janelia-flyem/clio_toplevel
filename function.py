@@ -393,7 +393,8 @@ def handlerSavedSearches(email, dataset, point, jsondata, method):
             jsondata["locationkey"] = f"{point[0]}_{point[1]}_{point[2]}"
             jsondata["email"] = email
             searches_collection.document().set(jsondata)
-        except:
+        except Exception as e:
+            print(e)
             abort(make_error_response(400))
     elif method == "DELETE":
         try:
